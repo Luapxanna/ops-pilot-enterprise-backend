@@ -5,11 +5,109 @@
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
-  provider = "prisma-client-js"
-  output   = "../src/generated/prisma"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id            String         @id @default(uuid())
+  name          String         @unique
+  organizations Organization[]
+  users         User[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  isActive      Boolean        @default(true)
+}
+
+model Organization {
+  id          String             @id @default(uuid())
+  name        String
+  description String?
+  members     UserOrganization[]
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  tenantId    String
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([name, tenantId])
+  @@index([tenantId])
+}
+
+model User {
+  id            String             @id @default(uuid())
+  email         String
+  password      String
+  firstName     String?
+  lastName      String?
+  role          UserRole           @default(USER)
+  isActive      Boolean            @default(true)
+  organizations UserOrganization[]
+  sessions      Session[]
+  refreshTokens RefreshToken[]
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  tenantId      String?
+  tenant        Tenant?            @relation(fields: [tenantId], references: [id])
+
+  @@unique([email, tenantId])
+  @@index([tenantId])
+}
+
+model UserOrganization {
+  id             String       @id @default(uuid())
+  userId         String
+  organizationId String
+  role           OrgRole      @default(MEMBER)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  tenantId       String
+
+  @@unique([userId, organizationId])
+  @@index([userId])
+  @@index([organizationId])
+  @@index([tenantId])
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  revoked   Boolean  @default(false)
+
+  @@index([userId])
+}
+
+enum UserRole {
+  SUPER_ADMIN // Can access all tenants
+  ADMIN // Limited to their tenant
+  USER // Limited to their tenant
+}
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  MEMBER
 }
