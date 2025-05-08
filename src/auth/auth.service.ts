@@ -1,27 +1,10 @@
-import { betterAuth } from 'better-auth';
 import { PrismaClient } from '@prisma/client';
-import { UserRole } from '@prisma/client';
-import { prismaAdapter } from "better-auth/adapters/prisma";
-
 import jwt from 'jsonwebtoken';
 import { randomBytes } from 'crypto';
 import bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
-// Configure Better Auth without Prisma adapter
-export const auth = betterAuth({
-  secret: process.env.BETTER_AUTH_SECRET,
-  baseUrl: process.env.BETTER_AUTH_URL,
-  emailAndPassword: {
-    enabled: true,
-
-  },
-  database: prismaAdapter(prisma, {
-    provider: "postgresql",
-  }),
-  },
-);
 interface RegisterUserDTO {
   email: string;
   password: string;
@@ -50,11 +33,7 @@ export class AuthService {
       if (existingUser) {
         throw new Error('User already exists');
       }
-
-      // Try to create user in Better Auth first
       try {
-        
-
         // Hash password for local storage
         const hashedPassword = await bcrypt.hash(userData.password, 10);
         const user = await prisma.user.create({
@@ -69,20 +48,35 @@ export class AuthService {
             password: hashedPassword,
             emailVerified: false,
           },
+          include: {
+            organizations: {
+              include: {
+                organization: true
+              }
+            }
+          }
         });
+        
+        // Get user's organizations
+        const userOrgs = user.organizations.map(uo => ({
+          id: uo.organization.id,
+          role: uo.role,
+          name: uo.organization.name
+        }));
 
-        // Generate JWT token
+        // Generate JWT token with organization info
         const accessToken = jwt.sign(
           {
             userId: user.id,
             email: user.email,
             role: user.role,
             tenantId: user.tenantId,
+            organizations: userOrgs
           },
           process.env.JWT_SECRET!,
           { expiresIn: '15m' }
         );
-
+        
         // Generate refresh token
         const refreshTokenValue = randomBytes(40).toString('hex');
         const expiresAt = new Date();
@@ -95,7 +89,6 @@ export class AuthService {
             expiresAt,
           },
         });
-
         return {
           user: {
             id: user.id,
@@ -104,6 +97,7 @@ export class AuthService {
             lastName: user.lastName,
             role: user.role,
             tenantId: user.tenantId,
+            organizations: userOrgs
           },
           accessToken,
           refreshToken: refreshTokenValue,
@@ -120,35 +114,48 @@ export class AuthService {
 
   async login(email: string, password: string, tenantId?: string) {
     try {
-      // Find user in database first
+      // Find user in database first with their organizations
       const user = await prisma.user.findUnique({
         where: { email_tenantId: { email, tenantId: tenantId || '' } },
+        include: {
+          organizations: {
+            include: {
+              organization: true
+            }
+          }
+        }
       });
-
+      
       if (!user) {
         throw new Error('User not found');
       }
-
+      
       // Verify password using bcrypt
       const passwordValid = await bcrypt.compare(password, user.password);
       if (!passwordValid) {
         throw new Error('Invalid password');
       }
 
-      // Also authenticate using Better Auth
-     
-      // Generate new tokens
+      // Get user's organizations
+      const userOrgs = user.organizations.map(uo => ({
+        id: uo.organization.id,
+        role: uo.role,
+        name: uo.organization.name
+      }));
+      
+      // Generate new tokens with organization info
       const accessToken = jwt.sign(
         {
           userId: user.id,
           email: user.email,
           role: user.role,
           tenantId: user.tenantId,
+          organizations: userOrgs
         },
         process.env.JWT_SECRET!,
         { expiresIn: '15m' }
       );
-
+      
       const refreshTokenValue = randomBytes(40).toString('hex');
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 7);
@@ -160,7 +167,7 @@ export class AuthService {
           expiresAt,
         },
       });
-
+      
       await prisma.session.create({
         data: {
           userId: user.id,
@@ -168,7 +175,7 @@ export class AuthService {
           expiresAt: new Date(Date.now() + 15 * 60 * 1000),
         },
       });
-
+      
       return {
         user: {
           id: user.id,
@@ -177,6 +184,7 @@ export class AuthService {
           lastName: user.lastName,
           role: user.role,
           tenantId: user.tenantId,
+          organizations: userOrgs
         },
         accessToken,
         refreshToken: refreshTokenValue,
@@ -192,7 +200,17 @@ export class AuthService {
       // Find the refresh token in the database
       const storedToken = await prisma.refreshToken.findUnique({
         where: { token: refreshToken },
-        include: { user: true },
+        include: { 
+          user: {
+            include: {
+              organizations: {
+                include: {
+                  organization: true
+                }
+              }
+            }
+          } 
+        },
       });
 
       if (!storedToken || storedToken.expiresAt < new Date()) {
@@ -204,13 +222,21 @@ export class AuthService {
         where: { id: storedToken.id },
       });
 
-      // Generate new tokens
+      // Get user's organizations
+      const userOrgs = storedToken.user.organizations.map(uo => ({
+        id: uo.organization.id,
+        role: uo.role,
+        name: uo.organization.name
+      }));
+
+      // Generate new tokens with organization info
       const accessToken = jwt.sign(
         {
           userId: storedToken.user.id,
           email: storedToken.user.email,
           role: storedToken.user.role,
           tenantId: storedToken.user.tenantId,
+          organizations: userOrgs
         },
         process.env.JWT_SECRET!,
         { expiresIn: '15m' }
