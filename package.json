@@ -21,6 +21,8 @@
     "encore.dev": "^1.46.21",
     "json2csv": "^6.0.0-alpha.2",
     "jsonwebtoken": "^9.0.2",
-    "node-cron": "^3.0.3"
+    "node-cron": "^3.0.3",
+    "pg": "^8.15.6",
+    "typeorm": "^0.3.22"
   }
 }

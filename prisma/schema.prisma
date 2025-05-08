@@ -39,16 +39,19 @@ model Organization {
 }
 
 model User {
-  id            String             @id @default(uuid())
+  id            String             @id // Remove @default(uuid()) to allow Better Auth ID
   email         String
   password      String
   firstName     String?
   lastName      String?
+  name          String?
   role          UserRole           @default(USER)
   isActive      Boolean            @default(true)
+  emailVerified Boolean            @default(false)
   organizations UserOrganization[]
   sessions      Session[]
   refreshTokens RefreshToken[]
+  accounts      Account[]
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
   tenantId      String?
@@ -98,6 +101,24 @@ model RefreshToken {
   revoked   Boolean  @default(false)
 
   @@index([userId])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refreshToken      String? @db.Text
+  accessToken       String? @db.Text
+  expiresAt         Int?
+  tokenType         String?
+  scope             String?
+  idToken           String? @db.Text
+  sessionState      String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
 }
 
 enum UserRole {
